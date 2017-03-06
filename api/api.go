@@ -419,7 +419,19 @@ func (api *API) listSilences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var sils []*types.Silence
+	matchers := []*labels.Matcher{}
+	if filter := r.FormValue("filter"); filter != "" {
+		matchers, err = parse.Matchers(filter)
+		if err != nil {
+			respondError(w, apiError{
+				typ: errorBadData,
+				err: err,
+			}, nil)
+			return
+		}
+	}
+
+	sils := []*types.Silence{}
 	for _, ps := range psils {
 		s, err := silenceFromProto(ps)
 		if err != nil {
@@ -429,10 +441,28 @@ func (api *API) listSilences(w http.ResponseWriter, r *http.Request) {
 			}, nil)
 			return
 		}
+
+		if !matchesFilterLabels(s, matchers) {
+			continue
+		}
 		sils = append(sils, s)
 	}
 
 	respond(w, sils)
+}
+
+func matchesFilterLabels(s *types.Silence, matchers []*labels.Matcher) bool {
+	sms := map[string]string{}
+	for _, m := range s.Matchers {
+		sms[m.Name] = m.Value
+	}
+	for _, m := range matchers {
+		if v, prs := sms[m.Name]; !prs || !m.Matches(v) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func silenceToProto(s *types.Silence) (*silencepb.Silence, error) {
