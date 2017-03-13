@@ -206,7 +206,7 @@ func createStage(rc *config.Receiver, tmpl *template.Template, wait func() time.
 		}
 		var s MultiStage
 		s = append(s, NewWaitStage(wait))
-		s = append(s, NewDedupStage(notificationLog, recv))
+		s = append(s, NewDedupStage(notificationLog, recv, i.conf.SendResolved()))
 		s = append(s, NewRetryStage(i))
 		s = append(s, NewSetNotifiesStage(notificationLog, recv))
 
@@ -382,8 +382,9 @@ func (ws *WaitStage) Exec(ctx context.Context, alerts ...*types.Alert) (context.
 // DedupStage filters alerts.
 // Filtering happens based on a notification log.
 type DedupStage struct {
-	nflog nflog.Log
-	recv  *nflogpb.Receiver
+	nflog        nflog.Log
+	recv         *nflogpb.Receiver
+	sendResolved bool
 
 	// TODO(fabxc): consider creating an AlertBatch type received
 	// by stages that implements these functions.
@@ -395,13 +396,14 @@ type DedupStage struct {
 }
 
 // NewDedupStage wraps a DedupStage that runs against the given notification log.
-func NewDedupStage(l nflog.Log, recv *nflogpb.Receiver) *DedupStage {
+func NewDedupStage(l nflog.Log, recv *nflogpb.Receiver, sendResolved bool) *DedupStage {
 	return &DedupStage{
-		nflog:    l,
-		recv:     recv,
-		hash:     hashAlerts,
-		resolved: allAlertsResolved,
-		now:      utcNow,
+		nflog:        l,
+		recv:         recv,
+		hash:         hashAlerts,
+		resolved:     allAlertsResolved,
+		now:          utcNow,
+		sendResolved: sendResolved,
 	}
 }
 
@@ -475,6 +477,14 @@ func (n *DedupStage) Exec(ctx context.Context, alerts ...*types.Alert) (context.
 	if !ok {
 		return ctx, nil, fmt.Errorf("repeat interval missing")
 	}
+
+	// res := []*types.Alert{}
+	// for _, a := range alerts {
+	// 	if a.Status() != model.AlertResolved {
+	// 		res = append(res, a)
+	// 	}
+	// }
+	// alerts = res
 
 	hash := n.hash(alerts)
 	resolved := n.resolved(alerts)
